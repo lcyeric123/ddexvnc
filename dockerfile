@@ -1,46 +1,42 @@
-FROM debian:bullseye
+FROM debian:bookworm
 ENV DEBIAN_FRONTEND=noninteractive
 
+RUN echo "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list
+RUN echo "deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list
+RUN echo "deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list
+
+RUN apt update && apt install -y locales apt-utils
+RUN echo "zh_CN.UTF-8 UTF-8" >> /etc/locale.gen && locale-gen
+ENV LANG=zh_CN.UTF-8
+ENV LC_ALL=zh_CN.UTF-8
+
 RUN dpkg --add-architecture i386
+RUN apt update && apt install -y wget gnupg2 apt-transport-https ca-certificates software-properties-common
 
-# 深度桌面密钥与源
-RUN mkdir -p /tmp && cd /tmp && \
-wget https://packages.deepin.com/deepin/pool/main/d/deepin-keyring/deepin-keyring_2021.07.27_all.deb && \
-dpkg -i deepin-keyring_2021.07.27_all.deb && rm -rf /tmp/*
-RUN echo "deb https://packages.deepin.com/deepin stable main contrib non-free" >> /etc/apt/sources.list
+RUN wget -nc https://dl.winehq.org/wine-builds/winehq.key
+RUN gpg --output /usr/share/keyrings/winehq.gpg --dearmor winehq.key
+RUN echo "deb [arch=amd64,i386 signed-by=/usr/share/keyrings/winehq.gpg] https://dl.winehq.org/wine-builds/debian/ bookworm main" > /etc/apt/sources.list.d/winehq.list
 
-# 安装：DDE桌面 + TigerVNC(Xvnc) + Wine + XDP编译组件 + dbus音频
 RUN apt update && apt install -y \
-tigervnc-standalone-server \
-dde dde-control-center dde-file-manager dde-terminal \
+xvfb x11vnc novnc websockify \
+cinnamon cinnamon-core cinnamon-settings-daemon fonts-wqy-microhei \
 dbus-x11 sudo curl wget nano net-tools policykit-1 \
 pulseaudio pulseaudio-utils firefox-esr iproute2 libbpf-dev \
-gcc make git bpftool locales xorg xrdp winehq-stable && \
+gcc make git bpftool xorg winehq-stable && \
 apt clean && rm -rf /var/lib/apt/lists/*
 
-# 系统中文环境
-RUN locale-gen zh_CN.UTF-8 && update-locale LANG=zh_CN.UTF-8 LC_ALL=zh_CN.UTF-8
-
-# 创建用户
 RUN useradd -m -s /bin/bash vncuser && echo "vncuser:123456" | chpasswd && usermod -aG sudo vncuser
 RUN echo "allowed_users=anybody" >> /etc/X11/Xwrapper.config
 RUN echo "needs_root_rights=yes" >> /etc/X11/Xwrapper.config
-RUN dbus-uuidgen --ensure-fixed
+RUN dbus-uuidgen --ensure
 
-# 写入VNC启动配置文件
-USER vncuser
-RUN mkdir -p ~/.vnc && echo 123456 | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd
-RUN echo "#!/bin/bash" > ~/.vnc/xstartup && \
-echo "export DBUS_SESSION_BUS_ADDRESS=\`dbus-daemon --session --fork --print-address\`" >> ~/.vnc/xstartup && \
-echo "startdde" >> ~/.vnc/xstartup && chmod +x ~/.vnc/xstartup
-USER root
+# 直接写入加密密码，绕过x11vnc交互式报错
+RUN mkdir -p /home/vncuser/.vnc
+RUN echo Ulglj+Fj7dRcA > /home/vncuser/.vnc/passwd
+RUN chown -R vncuser:vncuser /home/vncuser
+RUN chmod 600 /home/vncuser/.vnc/passwd
 
-# RDP反向代理VNC（3389进来自动接入5901 VNC桌面）
-RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini
-RUN sed -i 's/security_layer=negotiate/security_layer=rdp/' /etc/xrdp/xrdp.ini
-RUN echo "vnc://127.0.0.1:5901" > /etc/xrdp/startwm.sh && chmod +x /etc/xrdp/startwm.sh
-
-EXPOSE 5901 3389
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
-CMD ["/start.sh"]
+EXPOSE 5900 6080
+COPY web-start.sh /web-start.sh
+RUN chmod +x /web-start.sh
+CMD ["/web-start.sh"]
