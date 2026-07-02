@@ -1,0 +1,19 @@
+version: "3"
+services:
+  desktop:
+    build: .
+    image: cinnamon-novnc:latest
+    container_name: cinnamon-box
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - BPF
+      - SYS_MODULE
+      - PERFMON
+    volumes:
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "6080:6080"
+      - "5900:5900"
+    restart: always
